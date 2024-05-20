@@ -128,3 +128,84 @@ FROM(
 ))
 GROUP BY TT
 ORDER BY TT
+
+-- 경유 횟수 별 항공권 가격
+select round(avg(total_fare)) as avg_fare, departure_layover_cnt
+from(
+select
+    -- LENGTH(arrival_id) - LENGTH(REPLACE(arrival_id, '+', '')) AS arrival_layover_cnt
+    LENGTH(departure_id) - LENGTH(REPLACE(departure_id, '+', '')) AS departure_layover_cnt,
+    total_fare
+from "instantrip"."20240430"
+)
+group by departure_layover_cnt
+order by departure_layover_cnt
+
+-- 경유 횟수 별 항공권 수
+select count(0) as stop_over_cnt, departure_layover_cnt
+from(
+select
+    -- LENGTH(arrival_id) - LENGTH(REPLACE(arrival_id, '+', '')) AS arrival_layover_cnt
+    LENGTH(departure_id) - LENGTH(REPLACE(departure_id, '+', '')) AS departure_layover_cnt,
+    total_fare
+from "instantrip"."20240430"
+)
+group by departure_layover_cnt
+order by departure_layover_cnt
+
+-- 경유 대기 시간 분포도
+WITH layover_counts AS (
+    SELECT
+        flight_id,
+        departure_detail,
+        LENGTH(departure_id) - LENGTH(REPLACE(departure_id, '+', '')) AS departure_layover_cnt
+    FROM "instantrip"."20240430"
+),
+parsed_data AS (
+    SELECT
+        flight_id,
+        departure_layover_cnt,
+        CASE WHEN departure_layover_cnt >= 0 THEN CAST(SUBSTRING(departure_detail[1].CT, 1, 2) AS INTEGER) * 60 
+                                                + CAST(SUBSTRING(departure_detail[1].CT, 3, 2) AS INTEGER) ELSE NULL END AS ct_0,
+                                                
+        CASE WHEN departure_layover_cnt >= 1 THEN CAST(SUBSTRING(departure_detail[2].CT, 1, 2) AS INTEGER) * 60 
+                                                + CAST(SUBSTRING(departure_detail[2].CT, 3, 2) AS INTEGER) ELSE NULL END AS ct_1,
+                                                
+        CASE WHEN departure_layover_cnt >= 2 THEN CAST(SUBSTRING(departure_detail[3].CT, 1, 2) AS INTEGER) * 60 
+                                                + CAST(SUBSTRING(departure_detail[3].CT, 3, 2) AS INTEGER) ELSE NULL END AS ct_2,
+                                                
+        CASE WHEN departure_layover_cnt >= 3 THEN CAST(SUBSTRING(departure_detail[4].CT, 1, 2) AS INTEGER) * 60 
+                                                + CAST(SUBSTRING(departure_detail[4].CT, 3, 2) AS INTEGER) ELSE NULL END AS ct_3
+    FROM layover_counts
+    WHERE departure_layover_cnt > 0
+),
+union_data AS (
+    SELECT
+        CAST(ct_0 AS INTEGER) AS ct_minutes
+    FROM parsed_data
+    WHERE CAST(ct_0 AS INTEGER) > 0
+    UNION ALL
+    SELECT
+        CAST(ct_1 AS INTEGER) AS ct_minutes
+    FROM parsed_data
+    WHERE CAST(ct_1 AS INTEGER) > 0
+    UNION ALL
+    SELECT
+        CAST(ct_2 AS INTEGER) AS ct_minutes
+    FROM parsed_data
+    WHERE CAST(ct_2 AS INTEGER) > 0
+    UNION ALL
+    SELECT
+        CAST(ct_3 AS INTEGER) AS ct_minutes
+    FROM parsed_data
+    WHERE CAST(ct_3 AS INTEGER) > 0
+)
+SELECT
+    ROUND(ct_minutes / 30.0)/2 AS rounded_hours,
+    COUNT(*) AS count
+FROM
+    union_data
+GROUP BY
+    ROUND(ct_minutes / 30.0)
+ORDER BY
+    rounded_hours;
