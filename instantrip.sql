@@ -209,4 +209,23 @@ GROUP BY
     ROUND(ct_minutes / 30.0)
 ORDER BY
     rounded_hours;
--- test
+    
+-- 공항별 랜덤 10개 추출
+WITH RandomRows AS (
+    SELECT 
+        partition_1, 
+        flight_id
+    FROM (
+        SELECT 
+            partition_1, 
+            flight_id,
+            ROW_NUMBER() OVER (PARTITION BY partition_1 ORDER BY RAND()) as row_num
+        FROM "instantrip"."20240430"
+    ) AS ordered_rows
+    WHERE row_num <= 10
+)
+
+SELECT p.*
+FROM "instantrip"."20240430" p
+JOIN RandomRows r
+ON p.partition_1 = r.partition_1 AND p.flight_id = r.flight_id;
