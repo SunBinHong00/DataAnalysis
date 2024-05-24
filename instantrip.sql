@@ -209,7 +209,7 @@ GROUP BY
     ROUND(ct_minutes / 30.0)
 ORDER BY
     rounded_hours;
-    
+
 -- 공항별 랜덤 10개 추출
 WITH RandomRows AS (
     SELECT 
@@ -229,3 +229,81 @@ SELECT p.*
 FROM "instantrip"."20240430" p
 JOIN RandomRows r
 ON p.partition_1 = r.partition_1 AND p.flight_id = r.flight_id;
+
+-- 출발 도착 경유 횟수 카운트 피벗 테이블
+WITH layover_counts AS (
+    SELECT
+        flight_id,
+        LENGTH(departure_id) - LENGTH(REPLACE(departure_id, '+', '')) AS departure_layover_cnt,
+        LENGTH(arrival_id) - LENGTH(REPLACE(arrival_id, '+', '')) AS arrival_layover_cnt
+    FROM "instantrip"."20240430"
+)
+
+SELECT
+    departure_layover_cnt,
+    COUNT(IF(arrival_layover_cnt = 0, 1, NULL)) AS arrival_layover_0,
+    COUNT(IF(arrival_layover_cnt = 1, 1, NULL)) AS arrival_layover_1,
+    COUNT(IF(arrival_layover_cnt = 2, 1, NULL)) AS arrival_layover_2,
+    COUNT(IF(arrival_layover_cnt = 3, 1, NULL)) AS arrival_layover_3,
+    COUNT(IF(arrival_layover_cnt = 4, 1, NULL)) AS arrival_layover_4,
+    COUNT(IF(arrival_layover_cnt = 5, 1, NULL)) AS arrival_layover_5
+FROM layover_counts
+GROUP BY departure_layover_cnt
+ORDER BY departure_layover_cnt;
+
+
+
+-- 직항 출발 시간 별 항공권 수
+WITH InitialData AS (
+    SELECT 
+        flight_id,
+        -- 출발 도착 날짜
+        CAST(SUBSTRING(departure_id, 1, 4) || '-' || SUBSTRING(departure_id, 5, 2) || '-' || SUBSTRING(departure_id, 7, 2) AS DATE) AS DEPARTURE_DATE,
+        CAST(SUBSTRING(arrival_id, 1, 4) || '-' || SUBSTRING(arrival_id, 5, 2) || '-' || SUBSTRING(arrival_id, 7, 2) AS DATE) AS ARRIVAL_DATE,
+        -- 출발 도착 경유 횟수
+        LENGTH(departure_id) - LENGTH(REPLACE(departure_id, '+', '')) AS departure_layover_cnt,
+        LENGTH(arrival_id) - LENGTH(REPLACE(arrival_id, '+', '')) AS arrival_layover_cnt,
+        date_parse(departure_detail[1].sdt , '%Y%m%d%H%i') AS departure_sdt,
+        date_parse(arrival_detail[1].sdt , '%Y%m%d%H%i') AS arrival_sdt,
+        departure_detail,
+        arrival_detail,
+        total_fare,
+        partition_1
+    FROM 
+        "instantrip"."20240430" 
+),
+DirectFlight AS (
+SELECT 
+    flight_id,
+    DEPARTURE_DATE,
+    ARRIVAL_DATE,
+    departure_sdt,
+    arrival_sdt,
+    date_diff('day', DEPARTURE_DATE, ARRIVAL_DATE) AS nights,
+    total_fare,
+    partition_1
+FROM InitialData
+WHERE departure_layover_cnt = 0 AND arrival_layover_cnt = 0
+),
+GroupedFlights AS (
+SELECT 
+    flight_id,
+    DEPARTURE_DATE,
+    ARRIVAL_DATE,
+    departure_sdt,
+    arrival_sdt,
+    nights,
+    total_fare,
+    partition_1,
+    -- Grouping departure_sdt into 30-minute intervals
+    DATE_TRUNC('minute', departure_sdt) + INTERVAL '30' minute * CAST(FLOOR(EXTRACT(MINUTE FROM departure_sdt) / 30) AS INTEGER) AS dep_sdt_30min
+FROM DirectFlight
+)
+
+SELECT 
+    date_format(dep_sdt_30min, '%H') AS dep_sdt_30min_formatted,
+    COUNT(*) AS flight_count
+FROM GroupedFlights
+GROUP BY date_format(dep_sdt_30min, '%H')
+ORDER BY date_format(dep_sdt_30min, '%H');
+
