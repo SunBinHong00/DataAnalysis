@@ -296,14 +296,16 @@ SELECT
     total_fare,
     partition_1,
     -- Grouping departure_sdt into 30-minute intervals
-    DATE_TRUNC('minute', departure_sdt) + INTERVAL '30' minute * CAST(FLOOR(EXTRACT(MINUTE FROM departure_sdt) / 30) AS INTEGER) AS dep_sdt_30min
+    DATE_TRUNC('minute', departure_sdt) + INTERVAL '15' minute * CAST(FLOOR(EXTRACT(MINUTE FROM departure_sdt) / 15) AS INTEGER) AS dep_sdt_30min
 FROM DirectFlight
 )
 
 SELECT 
-    date_format(dep_sdt_30min, '%H') AS dep_sdt_30min_formatted,
+    date_format(dep_sdt_30min, '%H%i') AS dep_sdt_30min_formatted,
     COUNT(*) AS flight_count
 FROM GroupedFlights
-GROUP BY date_format(dep_sdt_30min, '%H')
-ORDER BY date_format(dep_sdt_30min, '%H');
+GROUP BY date_format(dep_sdt_30min, '%H%i')
+ORDER BY date_format(dep_sdt_30min, '%H%i');
 
+
+-- 직항 출발 시간대 별 평균 가격
