@@ -403,3 +403,67 @@ WHERE departure_layover_cnt = 0 AND arrival_layover_cnt = 0
 
 SELECT total_fare, partition_0
 from DirectFlight
+
+-- 직항 출발 시간-가격
+WITH InitialData AS (
+    SELECT 
+        flight_id,
+        -- 출발 도착 날짜
+        CAST(SUBSTRING(departure_id, 1, 4) || '-' || SUBSTRING(departure_id, 5, 2) || '-' || SUBSTRING(departure_id, 7, 2) AS DATE) AS DEPARTURE_DATE,
+        CAST(SUBSTRING(arrival_id, 1, 4) || '-' || SUBSTRING(arrival_id, 5, 2) || '-' || SUBSTRING(arrival_id, 7, 2) AS DATE) AS ARRIVAL_DATE,
+        -- 출발 도착 경유 횟수
+        LENGTH(departure_id) - LENGTH(REPLACE(departure_id, '+', '')) AS departure_layover_cnt,
+        LENGTH(arrival_id) - LENGTH(REPLACE(arrival_id, '+', '')) AS arrival_layover_cnt,
+        date_parse(departure_detail[1].sdt , '%Y%m%d%H%i') AS departure_sdt,
+        date_parse(arrival_detail[1].sdt , '%Y%m%d%H%i') AS arrival_sdt,
+        departure_detail,
+        arrival_detail,
+        total_fare,
+        partition_0,
+        partition_1
+    FROM 
+        "instantrip"."20240430" 
+),
+DirectFlight AS (
+SELECT 
+    flight_id,
+    DEPARTURE_DATE,
+    ARRIVAL_DATE,
+    departure_sdt,
+    arrival_sdt,
+    date_diff('day', DEPARTURE_DATE, ARRIVAL_DATE) AS nights,
+    total_fare,
+    partition_0,
+    partition_1
+FROM InitialData
+WHERE departure_layover_cnt = 0 AND arrival_layover_cnt = 0
+),
+GroupedFlights AS (
+SELECT 
+    flight_id,
+    DEPARTURE_DATE,
+    ARRIVAL_DATE,
+    departure_sdt,
+    arrival_sdt,
+    nights,
+    total_fare,
+    partition_0,
+    partition_1,
+    -- 곱하기 2 반올림 나누기 2를 통해 0.5 단위 반올림 수행
+    -- 그래프 그릴때 xlbel을 시간 포맷으로 입력 예정
+    ROUND((EXTRACT(HOUR FROM departure_sdt) * 60 + EXTRACT(MINUTE FROM departure_sdt)) / 60.0 * 2) / 2 AS dep_sdt_hours,
+    PERCENT_RANK() OVER (PARTITION BY partition_0 ORDER BY total_fare) AS pr
+FROM DirectFlight
+)
+
+
+SELECT 
+    dep_sdt_hours,
+    departure_sdt,
+    -- round(avg(total_fare),-3) AS avg_fare,
+    total_fare,
+    partition_0
+FROM GroupedFlights
+where pr < 0.8
+-- GROUP BY partition_0, date_format(dep_sdt_30min, '%H:%i')
+-- ORDER BY partition_0, date_format(dep_sdt_30min, '%H:%i');
