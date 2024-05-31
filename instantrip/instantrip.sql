@@ -467,3 +467,66 @@ FROM GroupedFlights
 where pr < 0.8
 -- GROUP BY partition_0, date_format(dep_sdt_30min, '%H:%i')
 -- ORDER BY partition_0, date_format(dep_sdt_30min, '%H:%i');
+
+-- 머신러닝 전처리 쿼리
+WITH InitialData AS (
+    SELECT 
+        flight_id,
+        -- 출발 날짜
+        CAST(
+            SUBSTRING(departure_id, 1, 4) || '-' || SUBSTRING(departure_id, 5, 2) || '-' || SUBSTRING(departure_id, 7, 2) AS DATE
+        ) AS DEPARTURE_DATE,
+        -- 도착 날짜
+        CAST(
+            SUBSTRING(arrival_id, 1, 4) || '-' || SUBSTRING(arrival_id, 5, 2) || '-' || SUBSTRING(arrival_id, 7, 2) AS DATE
+        ) AS ARRIVAL_DATE,
+        -- 출발 시각
+        date_parse(departure_detail[1].sdt, '%Y%m%d%H%i') AS departure_sdt,
+        -- 출발 소요 시간
+        departure_detail[1].jt AS departure_jt,
+        -- 도착 시각
+        date_parse(arrival_detail[1].sdt, '%Y%m%d%H%i') AS arrival_sdt,
+        -- 도착 소요 시간
+        arrival_detail[1].jt AS arrival_jt,
+        -- 기본 운임료 + 세금 + 유류비
+        total_fare,
+        -- 항공권 대행사
+        agentcode, 
+        -- 지역
+        partition_0,
+        -- 공항
+        partition_1,
+        -- 시간대 정보 추가
+        TZ.time_zone,
+        baggagetype
+    FROM "instantrip"."20240430" ID
+    JOIN "airport_timezones" TZ
+    ON ID.partition_1 = TZ.airport_code
+    -- 직항 데이터만 필터링
+    WHERE 
+        LENGTH(departure_id) - LENGTH(REPLACE(departure_id, '+', '')) = 0
+        AND LENGTH(arrival_id) - LENGTH(REPLACE(arrival_id, '+', '')) = 0
+),
+ProcessedFlights AS (
+    SELECT 
+        -- 숙박 일수 계산
+        date_diff('day', DEPARTURE_DATE, ARRIVAL_DATE) AS nights,
+        departure_sdt,
+        departure_jt,
+        -- 출발 요일 (일요일0, 토요일6)
+        day_of_week(DEPARTURE_DATE) AS dep_week,
+        arrival_sdt,
+        arrival_jt,
+        -- 도착 요일 (일요일0, 토요일6)
+        day_of_week(ARRIVAL_DATE) AS arr_week,
+        agentcode,
+        partition_0,
+        partition_1,
+        time_zone,
+        baggagetype,
+        total_fare
+    FROM InitialData
+)
+
+SELECT *
+FROM ProcessedFlights
